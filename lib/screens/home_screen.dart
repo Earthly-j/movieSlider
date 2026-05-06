@@ -11,9 +11,12 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen> {
   final TmdbService _tmdbService = TmdbService();
   final CardSwiperController _swiperController = CardSwiperController();
+
+  int _swiperKey = 0;
+  int _swipedCount = 0;
 
   List<Movie> _movies = [];
   List<Movie> _watched = [];
@@ -21,27 +24,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _isLoading = true;
   String? _errorMessage;
 
-  late AnimationController _watchedPulse;
-  late AnimationController _skippedPulse;
-
   @override
   void initState() {
     super.initState();
-    _watchedPulse = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
-    _skippedPulse = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
     _loadMovies();
   }
 
   @override
   void dispose() {
-    _watchedPulse.dispose();
-    _skippedPulse.dispose();
     _swiperController.dispose();
     super.dispose();
   }
@@ -66,8 +56,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   /// Remaining unswiped movies.
-  int get _remaining => _movies.length - _watched.length - _skipped.length;
-  int get _currentIndex => _movies.length - _remaining;
+  int get _remaining => _movies.length - _swipedCount;
+  int get _currentIndex => _swipedCount;
 
   void _showWatchedBottomSheet() {
     showModalBottomSheet(
@@ -114,6 +104,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     setState(() {
       _watched.clear();
       _skipped.clear();
+      _swipedCount = 0;
+      _swiperKey++;
     });
   }
 
@@ -186,8 +178,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline,
-                  color: Colors.redAccent, size: 48),
+              const Icon(
+                Icons.error_outline,
+                color: Colors.redAccent,
+                size: 48,
+              ),
               const SizedBox(height: 16),
               Text(
                 _errorMessage!,
@@ -256,10 +251,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             children: [
               Text(
                 '$_currentIndex of ${_movies.length}',
-                style: const TextStyle(
-                  color: Colors.white54,
-                  fontSize: 13,
-                ),
+                style: const TextStyle(color: Colors.white54, fontSize: 13),
               ),
               const Spacer(),
               Text(
@@ -288,6 +280,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: CardSwiper(
+              key: ValueKey(_swiperKey),
               controller: _swiperController,
               cardsCount: _movies.length,
               numberOfCardsDisplayed: 3,
@@ -297,14 +290,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               onEnd: _onEnd,
               cardBuilder:
                   (context, index, percentThresholdX, percentThresholdY) {
-                // Only show unswiped cards
-                final effectiveIndex =
-                    _watched.length + _skipped.length + index;
-                if (effectiveIndex >= _movies.length) {
-                  return Container();
-                }
-                return SwipeCard(movie: _movies[effectiveIndex]);
-              },
+                    if (index >= _movies.length) {
+                      return Container();
+                    }
+                    return SwipeCard(movie: _movies[index]);
+                  },
               scale: 0.9,
               isLoop: false,
               duration: const Duration(milliseconds: 400),
@@ -338,7 +328,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 color: Colors.white54,
                 size: 50,
                 onTap: () {
-                  final idx = _watched.length + _skipped.length;
+                  final idx = _swipedCount;
                   if (idx < _movies.length) {
                     _showMovieDetail(_movies[idx]);
                   }
@@ -365,18 +355,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     int? currentIndex,
     CardSwiperDirection direction,
   ) {
-    final movieIndex = _watched.length + _skipped.length;
-    if (movieIndex >= _movies.length) return false;
+    if (previousIndex >= _movies.length) return false;
 
-    final movie = _movies[movieIndex];
+    final movie = _movies[previousIndex];
 
     if (direction == CardSwiperDirection.right) {
-      setState(() => _watched.add(movie));
-      _watchedPulse.forward(from: 0);
+      _watched.add(movie);
     } else {
-      setState(() => _skipped.add(movie));
-      _skippedPulse.forward(from: 0);
+      _skipped.add(movie);
     }
+
+    setState(() => _swipedCount++);
 
     return true;
   }
@@ -415,17 +404,20 @@ class _ActionButton extends StatelessWidget {
             height: size,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: color.withValues(alpha: 0.15),
-              border: Border.all(color: color, width: 2),
+              color: Colors.white.withValues(alpha: 0.08),
+              border: Border.all(color: color.withValues(alpha: 0.4), width: 2),
             ),
-            child: Icon(icon, color: color, size: 30),
+            child: Icon(icon, size: size * 0.55, color: color),
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         Text(
           label,
           style: TextStyle(
-              color: color, fontSize: 12, fontWeight: FontWeight.w500),
+            color: color,
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
         ),
       ],
     );
@@ -462,10 +454,7 @@ class _AnimatedCounterBadge extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              label,
-              style: TextStyle(color: color, fontSize: 12),
-            ),
+            Text(label, style: TextStyle(color: color, fontSize: 12)),
             const SizedBox(width: 6),
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 300),
@@ -553,16 +542,23 @@ class _MovieDetailSheet extends StatelessWidget {
                           Text(
                             movie.year,
                             style: const TextStyle(
-                                color: Colors.white70, fontSize: 15),
+                              color: Colors.white70,
+                              fontSize: 15,
+                            ),
                           ),
                         if (movie.year.isNotEmpty) const SizedBox(width: 16),
-                        const Icon(Icons.star_rounded,
-                            color: Colors.amber, size: 18),
+                        const Icon(
+                          Icons.star_rounded,
+                          color: Colors.amber,
+                          size: 18,
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           '${movie.ratingText} (${movie.voteCount} votes)',
                           style: const TextStyle(
-                              color: Colors.white70, fontSize: 15),
+                            color: Colors.white70,
+                            fontSize: 15,
+                          ),
                         ),
                       ],
                     ),

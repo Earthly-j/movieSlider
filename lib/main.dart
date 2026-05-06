@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'screens/home_screen.dart';
+import 'screens/genre_selection_screen.dart';
 
 void main() {
   runApp(const TmdbSliderApp());
@@ -11,10 +11,14 @@ class TmdbSliderApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: "hello",
+      title: "Movie Swiper",
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorSchemeSeed: const Color(0xFF1DB954), brightness: Brightness.dark, useMaterial3: true),
-      home: const HomeScreen(),
+      theme: ThemeData(
+        colorSchemeSeed: const Color(0xFF1DB954),
+        brightness: Brightness.dark,
+        useMaterial3: true,
+      ),
+      home: const GenreSelectionScreen(),
     );
   }
 }
