@@ -5,13 +5,18 @@ import 'genre_movie_screen.dart';
 
 /// Main categories for the top-level navigation.
 enum _MainTab {
-  movies('Movies', '🎬'),
-  anime('Anime', '👺'),
-  songs('Songs', '🎵');
+  movies('Movies', '🎬', [Color(0xFF6366F1), Color(0xFF818CF8)],
+      'Discover top-rated movies across every genre and era'),
+  anime('Anime', '👺', [Color(0xFFEC4899), Color(0xFFF472B6)],
+      'Explore the best anime series and films'),
+  songs('Songs', '🎵', [Color(0xFFF59E0B), Color(0xFFFBBF24)],
+      'Find trending songs and soundtracks');
 
-  const _MainTab(this.label, this.emoji);
+  const _MainTab(this.label, this.emoji, this.colors, this.subtitle);
   final String label;
   final String emoji;
+  final List<Color> colors;
+  final String subtitle;
 }
 
 /// Era definitions for filtering movies by decade.
@@ -43,6 +48,12 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
   String? _errorMessage;
   _MainTab _selectedTab = _MainTab.movies;
 
+  // Controllers
+  late final PageController _categoryController;
+  late final PageController _verticalPageController;
+  static const int _vMiddle = 50000;
+  static const int _catMiddle = 50000;
+
   // TMDB genre IDs → merged category key
   static const _mergeMap = <int, String>{
     28: 'Action & Thriller', 53: 'Action & Thriller',
@@ -67,7 +78,16 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
   @override
   void initState() {
     super.initState();
+    _categoryController = PageController(initialPage: _catMiddle, viewportFraction: 0.82);
+    _verticalPageController = PageController(initialPage: _vMiddle, viewportFraction: 0.88);
     _loadGenres();
+  }
+
+  @override
+  void dispose() {
+    _categoryController.dispose();
+    _verticalPageController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadGenres() async {
@@ -113,94 +133,106 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
   }
 
   Widget _mainContent() {
-    return CustomScrollView(
-      slivers: [
-        // ─── Header ───
-        SliverToBoxAdapter(child: SafeArea(
+    return Column(
+      children: [
+        // ─── Fixed Header ───
+        SafeArea(
           bottom: false,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
-            child: Text('${_selectedTab.emoji} Browse ${_selectedTab.label}', style: const TextStyle(
-              color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800,
-            )),
-          ),
-        )),
-        const SliverToBoxAdapter(child: Padding(
-          padding: EdgeInsets.fromLTRB(20, 0, 20, 12),
-          child: Text('Explore your favorite categories and eras',
-              style: TextStyle(color: Colors.white38, fontSize: 13)),
-        )),
-
-        // ─── Main Category Tabs (Replaces global era bar) ───
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-            child: SizedBox(
-              height: 44,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: _MainTab.values.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 10),
-                itemBuilder: (context, index) {
-                  final tab = _MainTab.values[index];
-                  final isSelected = _selectedTab == tab;
-                  return _MainTabChip(
-                    label: tab.label,
-                    emoji: tab.emoji,
-                    isSelected: isSelected,
-                    onTap: () {
-                      setState(() => _selectedTab = tab);
-                    },
-                  );
-                },
-              ),
-            ),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 2),
+            child: Text('What are you in the mood for?',
+                style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 14)),
           ),
         ),
 
-        // ─── Content ───
-        if (_selectedTab == _MainTab.movies)
-          SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, index) => _GenreSection(
-                genre: _mergedGenres[index],
-                onTapExplore: () => _openGenre(_mergedGenres[index]),
-                onTapEra: (era) => _openGenre(_mergedGenres[index], era: era),
-              ),
-              childCount: _mergedGenres.length,
-            ),
-          )
-        else
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_selectedTab.emoji, style: const TextStyle(fontSize: 48)),
-                  const SizedBox(height: 16),
-                  Text(
-                    '${_selectedTab.label} content is coming soon!',
-                    style: const TextStyle(color: Colors.white54, fontSize: 16),
-                  ),
-                ],
-              ),
-            ),
+        // ─── Category Carousel (Movie / Anime / Song) ───
+        SizedBox(
+          height: 130,
+          child: PageView.builder(
+            controller: _categoryController,
+            itemCount: null, // infinite — wraps via modulo
+            onPageChanged: (page) {
+              final tabIndex = page % _MainTab.values.length;
+              if (_selectedTab != _MainTab.values[tabIndex]) {
+                setState(() => _selectedTab = _MainTab.values[tabIndex]);
+              }
+            },
+            itemBuilder: (context, index) {
+              final tab = _MainTab.values[index % _MainTab.values.length];
+              return _CategoryCard(
+                tab: tab,
+                isSelected: _selectedTab == tab,
+                onTap: () {
+                  // Animate to the nearest occurrence of this tab
+                  final currentPage = _categoryController.page?.round() ?? _catMiddle;
+                  final currentTab = currentPage % _MainTab.values.length;
+                  final targetTab = _MainTab.values.indexOf(tab);
+                  int diff = targetTab - currentTab;
+                  if (diff > _MainTab.values.length / 2) diff -= _MainTab.values.length;
+                  if (diff < -_MainTab.values.length / 2) diff += _MainTab.values.length;
+                  _categoryController.animateToPage(
+                    currentPage + diff,
+                    duration: const Duration(milliseconds: 400),
+                    curve: Curves.easeInOut,
+                  );
+                },
+              );
+            },
           ),
+        ),
 
-        const SliverToBoxAdapter(child: SizedBox(height: 40)),
+        // ─── Tab indicator dots ───
+        Padding(
+          padding: const EdgeInsets.only(top: 10, bottom: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: _MainTab.values.map((tab) {
+              final isActive = _selectedTab == tab;
+              return AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                width: isActive ? 24 : 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: isActive ? tab.colors.first : Colors.white24,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+
+        const SizedBox(height: 8),
+
+        // ─── Content below synced to selected tab ───
+        Expanded(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            child: _selectedTab == _MainTab.movies
+                ? PageView.builder(
+                    key: const ValueKey('movies'),
+                    controller: _verticalPageController,
+                    scrollDirection: Axis.vertical,
+                    itemCount: null,
+                    itemBuilder: (context, index) {
+                      final genreIndex = index % _mergedGenres.length;
+                      final genre = _mergedGenres[genreIndex];
+                      return _GenreSection(
+                        key: ValueKey('genre_$genreIndex'),
+                        genre: genre,
+                        onTapExplore: () => _openGenre(genre),
+                        onTapEra: (era) => _openGenre(genre, era: era),
+                      );
+                    },
+                  )
+                : _ComingSoonPage(
+                    key: ValueKey(_selectedTab.label),
+                    tab: _selectedTab,
+                  ),
+          ),
+        ),
       ],
     );
-  }
-
-  String _eraEmoji(_Era era) {
-    switch (era) {
-      case _Era.eighties: return '📼';
-      case _Era.nineties: return '📺';
-      case _Era.zeroes:  return '💿';
-      case _Era.tens:     return '📱';
-      case _Era.twenties: return '🍿';
-    }
   }
 
   void _openGenre(_MergedGenre genre, {_Era? era}) {
@@ -217,11 +249,146 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
 }
 
 // ════════════════════════════════════════════════════════════════
+// Category Card — swipeable card for Movie / Anime / Song
+// ════════════════════════════════════════════════════════════════
+
+class _CategoryCard extends StatelessWidget {
+  const _CategoryCard({required this.tab, required this.isSelected, required this.onTap});
+  final _MainTab tab;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: tab.colors),
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: tab.colors.first.withValues(alpha: 0.4),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                    spreadRadius: 2,
+                  ),
+                ]
+              : [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+          border: isSelected
+              ? null
+              : Border.all(color: Colors.white.withValues(alpha: 0.08), width: 1),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              children: [
+                Text(tab.emoji, style: TextStyle(fontSize: isSelected ? 36 : 28)),
+                const SizedBox(width: 14),
+                Text(
+                  tab.label,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: isSelected ? 24 : 18,
+                    fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                  ),
+                ),
+                if (isSelected) ...[
+                  const SizedBox(width: 10),
+                  Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.check_rounded, color: Colors.white, size: 16),
+                  ),
+                ],
+              ],
+            ),
+            if (isSelected) ...[
+              const SizedBox(height: 6),
+              Text(
+                tab.subtitle,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.85),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// Coming Soon Page — placeholder for Anime / Song tabs
+// ════════════════════════════════════════════════════════════════
+
+class _ComingSoonPage extends StatelessWidget {
+  const _ComingSoonPage({super.key, required this.tab});
+  final _MainTab tab;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: tab.colors),
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [
+                BoxShadow(
+                  color: tab.colors.first.withValues(alpha: 0.3),
+                  blurRadius: 24,
+                  offset: const Offset(0, 12),
+                ),
+              ],
+            ),
+            child: Text(tab.emoji, style: const TextStyle(fontSize: 52)),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            '${tab.label} is coming soon!',
+            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Swipe to Movies to start exploring',
+            style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
 // Genre Section — one row per genre with horizontal era carousel
 // ════════════════════════════════════════════════════════════════
 
 class _GenreSection extends StatefulWidget {
   const _GenreSection({
+    super.key,
     required this.genre,
     required this.onTapExplore,
     required this.onTapEra,
@@ -238,38 +405,20 @@ class _GenreSectionState extends State<_GenreSection> {
   final TmdbService _tmdbService = TmdbService();
   List<Movie> _allMovies = [];
   bool _isLoading = false;
-  late final ScrollController _scrollController;
+  late final PageController _pageController;
+
+  static const int _middle = 50000;
 
   @override
   void initState() {
     super.initState();
     _fetchMovies();
-    _scrollController = ScrollController();
-    // Start at a large index to simulate infinite scroll
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        final screenWidth = MediaQuery.of(context).size.width;
-        const cardWidthFactor = 0.90;
-        final cardWidth = screenWidth * cardWidthFactor;
-        const spacing = 14.0;
-        final itemWidth = cardWidth + spacing;
-
-        // centerOffset is the margin on the left to center the card
-        final centerOffset = (screenWidth - cardWidth) / 2;
-        
-        // Jump deep into the infinite list (e.g., 5000th item)
-        // This ensures plenty of room to scroll left or right.
-        const jumpToIndex = 5000; 
-        final scrollPosition = (jumpToIndex * itemWidth) - centerOffset;
-
-        _scrollController.jumpTo(scrollPosition);
-      }
-    });
+    _pageController = PageController(initialPage: _middle, viewportFraction: 0.85);
   }
 
   @override
   void dispose() {
-    _scrollController.dispose();
+    _pageController.dispose();
     super.dispose();
   }
 
@@ -290,7 +439,6 @@ class _GenreSectionState extends State<_GenreSection> {
     }
   }
 
-  /// Local filtering for the era cards in the carousel
   List<Movie> _moviesForEra(_Era era) {
     return _allMovies.where((m) {
       if (m.year.isEmpty) return false;
@@ -357,18 +505,17 @@ class _GenreSectionState extends State<_GenreSection> {
           else
             SizedBox(
               height: 220,
-              child: ListView.builder(
-                controller: _scrollController,
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: 10000, // Pseudo-infinite
+              child: PageView.builder(
+                controller: _pageController,
+                padEnds: true,
+                itemCount: null,
                 itemBuilder: (context, index) {
                   final era = _Era.all[index % _Era.all.length];
                   final movie = _topMovieForEra(era);
                   final count = _moviesForEra(era).length;
 
                   return Padding(
-                    padding: const EdgeInsets.only(right: 14),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: _EraCard(
                       genre: widget.genre,
                       era: era,
@@ -435,14 +582,12 @@ class _EraCard extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              // ── Background ──
               if (m != null && m.posterPath.isNotEmpty)
                 Image.network(m.fullPosterUrl, fit: BoxFit.cover,
                     errorBuilder: (_, __, ___) => _gradientBg(style))
               else
                 _gradientBg(style),
 
-              // ── Gradient overlay ──
               Container(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
@@ -458,7 +603,6 @@ class _EraCard extends StatelessWidget {
                 ),
               ),
 
-              // ── Content ──
               Padding(
                 padding: const EdgeInsets.all(18),
                 child: Column(
@@ -530,7 +674,6 @@ class _EraCard extends StatelessWidget {
                 ),
               ),
 
-              // ── Decorative ──
               Positioned(top: -20, right: -20, child: CircleAvatar(
                 radius: 50, backgroundColor: Colors.white.withValues(alpha: 0.04),
               )),
@@ -560,73 +703,6 @@ class _EraCard extends StatelessWidget {
     alignment: Alignment.center,
     child: Text(style.emoji, style: TextStyle(fontSize: 60, color: Colors.white.withValues(alpha: 0.08))),
   );
-}
-
-// ════════════════════════════════════════════════════════════════
-// Main Tab Chip — tappable pill for category selection
-// ════════════════════════════════════════════════════════════════
-
-class _MainTabChip extends StatelessWidget {
-  const _MainTabChip({
-    required this.label,
-    required this.emoji,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  final String label;
-  final String emoji;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeInOut,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          gradient: isSelected
-              ? const LinearGradient(colors: [
-                  Color(0xFF6366F1),
-                  Color(0xFF8B5CF6),
-                ])
-              : null,
-          color: isSelected ? null : const Color(0xFF1A1A2E),
-          borderRadius: BorderRadius.circular(22),
-          border: isSelected
-              ? null
-              : Border.all(color: const Color(0xFF333355), width: 1.2),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: const Color(0xFF6366F1).withValues(alpha: 0.35),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-              : null,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(emoji, style: const TextStyle(fontSize: 15)),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? Colors.white : Colors.white70,
-                fontSize: 13,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 // ════════════════════════════════════════════════════════════════
