@@ -670,33 +670,26 @@ class _EraCardState extends State<_EraCard> with SingleTickerProviderStateMixin 
                     ),
                   ),
 
-                  // ── Water-rise overlay (always present, off-screen when fraction=0) ──
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
+                  // ── Water-rise overlay (covers the card partially based on fraction) ──
+                  Positioned.fill(
                     child: FractionalTranslation(
                       translation: waterOffset,
                       child: Container(
-                        height: MediaQuery.of(context).size.height,
-                        width: double.infinity,
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             begin: Alignment.topCenter,
                             end: Alignment.bottomCenter,
                             colors: [
-                              style.colors.last.withValues(alpha: 0.0),
-                              style.colors.last.withValues(alpha: 0.4),
-                              style.colors.first.withValues(alpha: 0.7),
+                              style.colors.first.withValues(alpha: 0.2),
+                              style.colors.first.withValues(alpha: 0.5),
                             ],
-                            stops: const [0.0, 0.4, 1.0],
                           ),
                         ),
                       ),
                     ),
                   ),
 
-                  // ── Water surface wave line (always present, off-screen when fraction=0) ──
+                  // ── Water surface wave line ──
                   Positioned(
                     left: 0,
                     right: 0,
@@ -704,23 +697,15 @@ class _EraCardState extends State<_EraCard> with SingleTickerProviderStateMixin 
                     child: FractionalTranslation(
                       translation: waterOffset,
                       child: Container(
-                        height: 3,
+                        height: 2,
                         width: double.infinity,
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              Colors.transparent,
-                              Colors.white.withValues(alpha: 0.6),
-                              Colors.white.withValues(alpha: 0.9),
-                              Colors.white.withValues(alpha: 0.6),
-                              Colors.transparent,
-                            ],
-                          ),
+                          color: Colors.white.withValues(alpha: 0.6),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.white.withValues(alpha: 0.3),
-                              blurRadius: 8,
-                              spreadRadius: 1,
+                              color: Colors.white.withValues(alpha: 0.4),
+                              blurRadius: 10,
+                              spreadRadius: 2,
                             ),
                           ],
                         ),
@@ -794,29 +779,6 @@ class _EraCardState extends State<_EraCard> with SingleTickerProviderStateMixin 
                     ),
                   ),
 
-                  // ── Completion percentage label (always present, hidden when fraction=0) ──
-                  Positioned(
-                    bottom: 12,
-                    right: 16,
-                    child: Opacity(
-                      opacity: animFraction > 0.0 ? 1.0 : 0.0,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.5),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '${(animFraction * 100).round()}%',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
                 ],
               );
             },

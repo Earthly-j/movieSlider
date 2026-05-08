@@ -36,8 +36,6 @@ class _GenreMovieScreenWidgetState extends State<GenreMovieScreenWidget> {
 
   List<Movie> _movies = []; // filtered (no watched/skipped)
   int _totalMovies = 0; // total before filtering (for progress calculation)
-  int _initialWatchedCount = 0; // how many were already watched when we loaded
-  int _initialSkippedCount = 0; // how many were already skipped when we loaded
   final List<Movie> _watched = [];
   final List<Movie> _skipped = [];
   Set<int> _watchedIds = {};
@@ -372,8 +370,8 @@ class _GenreMovieScreenWidgetState extends State<GenreMovieScreenWidget> {
         genreName: widget.genreName,
         eraLabel: widget.eraLabel ?? 'All',
         total: _totalMovies,
-        watched: _initialWatchedCount + _watched.length,
-        skipped: _initialSkippedCount + _skipped.length,
+        watched: _watched.length,
+        skipped: _skipped.length,
       );
     }
 
