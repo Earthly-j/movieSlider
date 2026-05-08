@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../models/movie.dart';
 import '../services/tmdb_service.dart';
+import '../services/swipe_history.dart';
 import 'genre_movie_screen.dart';
+
 
 /// Main categories for the top-level navigation.
 enum _MainTab {
@@ -10,7 +12,9 @@ enum _MainTab {
   anime('Anime', '👺', [Color(0xFFEC4899), Color(0xFFF472B6)],
       'Explore the best anime series and films'),
   songs('Songs', '🎵', [Color(0xFFF59E0B), Color(0xFFFBBF24)],
-      'Find trending songs and soundtracks');
+      'Find trending songs and soundtracks'),
+  indieGames('Indie Games', '🕹️', [Color(0xFF10B981), Color(0xFF34D399)],
+      'Discover creative and unique indie games');
 
   const _MainTab(this.label, this.emoji, this.colors, this.subtitle);
   final String label;
@@ -53,6 +57,14 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
   late final PageController _verticalPageController;
   static const int _vMiddle = 50000;
   static const int _catMiddle = 50000;
+  late final FixedExtentScrollController _genreWheelController;
+
+  // ── Movie cache per genre label ──
+  final Map<String, List<Movie>> _genreMovieCache = {};
+  final Set<String> _genreLoading = {};
+
+  /// Incremented when user returns from a swipe screen so era cards reload progress.
+  int _progressRefreshKey = 0;
 
   // TMDB genre IDs → merged category key
   static const _mergeMap = <int, String>{
@@ -78,8 +90,9 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
   @override
   void initState() {
     super.initState();
-    _categoryController = PageController(initialPage: _catMiddle, viewportFraction: 0.82);
-    _verticalPageController = PageController(initialPage: _vMiddle, viewportFraction: 0.88);
+    _categoryController = PageController(initialPage: _catMiddle, viewportFraction: 0.40);
+    _verticalPageController = PageController(initialPage: _vMiddle, viewportFraction: 0.65);
+    _genreWheelController = FixedExtentScrollController(initialItem: _vMiddle);
     _loadGenres();
   }
 
@@ -87,6 +100,7 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
   void dispose() {
     _categoryController.dispose();
     _verticalPageController.dispose();
+    _genreWheelController.dispose();
     super.dispose();
   }
 
@@ -107,6 +121,21 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
       if (mounted) setState(() { _mergedGenres = merged; _isLoading = false; });
     } catch (e) {
       if (mounted) setState(() { _errorMessage = e.toString(); _isLoading = false; });
+    }
+  }
+
+  /// Fetch movies for a genre — caches the result so it only loads once.
+  Future<void> _fetchGenreMovies(String label, List<int> genreIds) async {
+    if (_genreMovieCache.containsKey(label) || _genreLoading.contains(label)) return;
+    _genreLoading.add(label);
+    try {
+      final movies = await _tmdbService.fetchMoviesByGenre(genreIds);
+      _genreMovieCache[label] = movies;
+    } catch (_) {
+      _genreMovieCache[label] = [];
+    } finally {
+      _genreLoading.remove(label);
+      if (mounted) setState(() {});
     }
   }
 
@@ -140,14 +169,18 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
           bottom: false,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 2),
-            child: Text('What are you in the mood for?',
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 14)),
+            child: Row(
+              children: [
+
+
+              ],
+            ),
           ),
         ),
 
-        // ─── Category Carousel (Movie / Anime / Song) ───
+        // ─── Category Slot Carousel (Game / Anime Song / Movie) ───
         SizedBox(
-          height: 130,
+          height: 100,
           child: PageView.builder(
             controller: _categoryController,
             itemCount: null, // infinite — wraps via modulo
@@ -180,28 +213,6 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
             },
           ),
         ),
-
-        // ─── Tab indicator dots ───
-        Padding(
-          padding: const EdgeInsets.only(top: 10, bottom: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: _MainTab.values.map((tab) {
-              final isActive = _selectedTab == tab;
-              return AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                width: isActive ? 24 : 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: isActive ? tab.colors.first : Colors.white24,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              );
-            }).toList(),
-          ),
-        ),
-
         const SizedBox(height: 8),
 
         // ─── Content below synced to selected tab ───
@@ -209,21 +220,36 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
             child: _selectedTab == _MainTab.movies
-                ? PageView.builder(
+                ? ListWheelScrollView.useDelegate(
                     key: const ValueKey('movies'),
-                    controller: _verticalPageController,
-                    scrollDirection: Axis.vertical,
-                    itemCount: null,
-                    itemBuilder: (context, index) {
-                      final genreIndex = index % _mergedGenres.length;
-                      final genre = _mergedGenres[genreIndex];
-                      return _GenreSection(
-                        key: ValueKey('genre_$genreIndex'),
-                        genre: genre,
-                        onTapExplore: () => _openGenre(genre),
-                        onTapEra: (era) => _openGenre(genre, era: era),
-                      );
-                    },
+                    controller: _genreWheelController,
+                    itemExtent: MediaQuery.of(context).size.height * 0.35,
+                    diameterRatio: 100.0,
+                    perspective: 0.0001,
+                    squeeze: 1.0,
+                    physics: const BouncingScrollPhysics(),
+                    childDelegate: ListWheelChildBuilderDelegate(
+                      childCount: null,
+                      builder: (context, index) {
+                        final genreIndex = index % _mergedGenres.length;
+                        final genre = _mergedGenres[genreIndex];
+                        // Trigger fetch if not cached yet
+                        _fetchGenreMovies(genre.label, genre.genreIds);
+                        final movies = _genreMovieCache[genre.label] ?? [];
+                        final loading = _genreLoading.contains(genre.label) && movies.isEmpty;
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: _GenreSection(
+                            key: ValueKey('genre_${genreIndex}_$_progressRefreshKey'),
+                            genre: genre,
+                            movies: movies,
+                            isLoading: loading,
+                            onTapExplore: () => _openGenre(genre),
+                            onTapEra: (era) => _openGenre(genre, era: era),
+                          ),
+                        );
+                      },
+                    ),
                   )
                 : _ComingSoonPage(
                     key: ValueKey(_selectedTab.label),
@@ -235,8 +261,8 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
     );
   }
 
-  void _openGenre(_MergedGenre genre, {_Era? era}) {
-    Navigator.push(context, MaterialPageRoute(
+  void _openGenre(_MergedGenre genre, {_Era? era}) async {
+    await Navigator.push(context, MaterialPageRoute(
       builder: (_) => GenreMovieScreenWidget(
         genreName: genre.label,
         genreIds: genre.genreIds,
@@ -245,6 +271,10 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
         eraEnd: era?.end,
       ),
     ));
+    // User returned — refresh progress on era cards
+    if (mounted) {
+      setState(() => _progressRefreshKey++);
+    }
   }
 }
 
@@ -265,16 +295,18 @@ class _CategoryCard extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeInOut,
-        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
         decoration: BoxDecoration(
           gradient: LinearGradient(colors: tab.colors),
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(18),
+          border: isSelected
+              ? Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1.5)
+              : Border.all(color: Colors.white.withValues(alpha: 0.06), width: 1),
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: tab.colors.first.withValues(alpha: 0.4),
-                    blurRadius: 20,
+                    color: tab.colors.first.withValues(alpha: 0.5),
+                    blurRadius: 24,
                     offset: const Offset(0, 8),
                     spreadRadius: 2,
                   ),
@@ -286,50 +318,34 @@ class _CategoryCard extends StatelessWidget {
                     offset: const Offset(0, 4),
                   ),
                 ],
-          border: isSelected
-              ? null
-              : Border.all(color: Colors.white.withValues(alpha: 0.08), width: 1),
         ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Row(
-              children: [
-                Text(tab.emoji, style: TextStyle(fontSize: isSelected ? 36 : 28)),
-                const SizedBox(width: 14),
-                Text(
-                  tab.label,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: isSelected ? 24 : 18,
-                    fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                  ),
-                ),
-                if (isSelected) ...[
-                  const SizedBox(width: 10),
-                  Container(
-                    padding: const EdgeInsets.all(5),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.check_rounded, color: Colors.white, size: 16),
-                  ),
-                ],
-              ],
+            Text(tab.emoji, style: TextStyle(fontSize: isSelected ? 30 : 22)),
+            const SizedBox(height: 8),
+            Text(
+              tab.label,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: isSelected ? 14 : 12,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+              ),
             ),
             if (isSelected) ...[
-              const SizedBox(height: 6),
-              Text(
-                tab.subtitle,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.85),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
+              const SizedBox(height: 4),
+              Container(
+                height: 3,
+                width: 24,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ],
+            // ── Placeholder content area — add your specifics here ──
+            const Spacer(),
           ],
         ),
       ),
@@ -390,10 +406,14 @@ class _GenreSection extends StatefulWidget {
   const _GenreSection({
     super.key,
     required this.genre,
+    required this.movies,
+    required this.isLoading,
     required this.onTapExplore,
     required this.onTapEra,
   });
   final _MergedGenre genre;
+  final List<Movie> movies;
+  final bool isLoading;
   final VoidCallback onTapExplore;
   final void Function(_Era era) onTapEra;
 
@@ -402,45 +422,41 @@ class _GenreSection extends StatefulWidget {
 }
 
 class _GenreSectionState extends State<_GenreSection> {
-  final TmdbService _tmdbService = TmdbService();
-  List<Movie> _allMovies = [];
-  bool _isLoading = false;
-  late final PageController _pageController;
-
-  static const int _middle = 50000;
+  /// completion fraction per era label (0.0 → 1.0)
+  final Map<String, double> _eraFractions = {};
+  bool _fractionsLoaded = false;
 
   @override
   void initState() {
     super.initState();
-    _fetchMovies();
-    _pageController = PageController(initialPage: _middle, viewportFraction: 0.85);
+    _loadFractions();
   }
 
   @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _fetchMovies() async {
-    if (mounted) setState(() => _isLoading = true);
-    try {
-      final movies = await _tmdbService.fetchMoviesByGenre(
-        widget.genre.genreIds,
-      );
-      if (mounted) {
-        setState(() {
-          _allMovies = movies;
-          _isLoading = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) setState(() => _isLoading = false);
+  void didUpdateWidget(covariant _GenreSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.movies.length != widget.movies.length && !_fractionsLoaded) {
+      _loadFractions();
     }
   }
 
+  Future<void> _loadFractions() async {
+    try {
+      for (final era in _Era.all) {
+        final f = await SwipeHistory.loadGenreEraFraction(
+          genreName: widget.genre.label,
+          eraLabel: era.label,
+        );
+        if (f != null && f > 0) _eraFractions[era.label] = f;
+      }
+    } catch (_) {
+      // Ignore — show cards with no progress if loading fails
+    }
+    if (mounted) setState(() => _fractionsLoaded = true);
+  }
+
   List<Movie> _moviesForEra(_Era era) {
-    return _allMovies.where((m) {
+    return widget.movies.where((m) {
       if (m.year.isEmpty) return false;
       final y = int.tryParse(m.year) ?? 0;
       return y >= era.start && y <= era.end;
@@ -452,12 +468,15 @@ class _GenreSectionState extends State<_GenreSection> {
     return list.isEmpty ? null : list.first;
   }
 
+  static const int _middle = 50000;
+  static final _pageController = PageController(initialPage: _middle, viewportFraction: 0.85);
+
   @override
   Widget build(BuildContext context) {
     final style = widget.genre.style;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 28),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -494,33 +513,30 @@ class _GenreSectionState extends State<_GenreSection> {
               ],
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
 
           // ── Content: infinite era carousel ──
-          if (_isLoading)
-            const SizedBox(
-              height: 220,
-              child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white24)),
-            )
-          else
-            SizedBox(
-              height: 220,
-              child: PageView.builder(
-                controller: _pageController,
-                padEnds: true,
-                itemCount: null,
-                itemBuilder: (context, index) {
-                  final era = _Era.all[index % _Era.all.length];
-                  final movie = _topMovieForEra(era);
-                  final count = _moviesForEra(era).length;
+          Expanded(
+            child: widget.isLoading
+                ? const Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white24))
+                : PageView.builder(
+                    controller: _pageController,
+                    padEnds: true,
+                    itemCount: null,
+                    itemBuilder: (context, index) {
+                      final era = _Era.all[index % _Era.all.length];
+                      final movie = _topMovieForEra(era);
+                      final count = _moviesForEra(era).length;
+                      final fraction = _eraFractions[era.label] ?? 0.0;
 
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: _EraCard(
                       genre: widget.genre,
                       era: era,
                       movie: movie,
                       movieCount: count,
+                      completionFraction: fraction,
                       onTap: () => widget.onTapEra(era),
                     ),
                   );
@@ -534,17 +550,19 @@ class _GenreSectionState extends State<_GenreSection> {
 }
 
 // ════════════════════════════════════════════════════════════════
-// Era Card — shows top movie for genre + era
+// Era Card — shows top movie for genre + era with water-rise effect
 // ════════════════════════════════════════════════════════════════
 
-class _EraCard extends StatelessWidget {
+class _EraCard extends StatefulWidget {
   const _EraCard({
     required this.genre,
     required this.era,
     required this.movie,
     required this.movieCount,
     required this.onTap,
+    this.completionFraction = 0.0,
     this.fullWidth = false,
+    this.sections = const [],
   });
 
   final _MergedGenre genre;
@@ -552,18 +570,60 @@ class _EraCard extends StatelessWidget {
   final Movie? movie;
   final int movieCount;
   final VoidCallback onTap;
+  final double completionFraction;
   final bool fullWidth;
+  final List<Widget> sections;
+
+  @override
+  State<_EraCard> createState() => _EraCardState();
+}
+
+class _EraCardState extends State<_EraCard> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 1200),
+      vsync: this,
+    );
+    _animation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeInOutCubic,
+    );
+    // Animate to the current completion fraction on appear
+    _controller.forward();
+  }
+
+  @override
+  void didUpdateWidget(covariant _EraCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.completionFraction != widget.completionFraction) {
+      // Re-animate from current to new fraction
+      _controller.value = oldWidget.completionFraction;
+      _controller.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final style = genre.style;
-    final width = fullWidth
+    final style = widget.genre.style;
+    final width = widget.fullWidth
         ? MediaQuery.of(context).size.width - 32
         : MediaQuery.of(context).size.width * 0.90;
-    final m = movie;
+    final m = widget.movie;
+    final fraction = widget.completionFraction;
 
     return GestureDetector(
-      onTap: onTap,
+      onTap: widget.onTap,
       child: Container(
         width: width,
         decoration: BoxDecoration(
@@ -579,117 +639,187 @@ class _EraCard extends StatelessWidget {
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(20),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (m != null && m.posterPath.isNotEmpty)
-                Image.network(m.fullPosterUrl, fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => _gradientBg(style))
-              else
-                _gradientBg(style),
+          child: AnimatedBuilder(
+            animation: _animation,
+            builder: (context, _) {
+              final animFraction = fraction * _animation.value;
+              // When animFraction is 0, water is pushed fully below the card (invisible).
+              // When animFraction is 1, water fills the entire card.
+              final waterOffset = Offset(0, 1.0 - animFraction);
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  // ── Background ──
+                  if (m != null && m.posterPath.isNotEmpty)
+                    _gradientBg(style)
+                  else
+                    _gradientBg(style),
 
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      style.colors.first.withValues(alpha: 0.3),
-                      style.colors.last.withValues(alpha: 0.9),
-                    ],
-                    stops: const [0.3, 0.6, 1.0],
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          style.colors.first.withValues(alpha: 0.3),
+                          style.colors.last.withValues(alpha: 0.9),
+                        ],
+                        stops: const [0.3, 0.6, 1.0],
+                      ),
+                    ),
                   ),
-                ),
-              ),
 
-              Padding(
-                padding: const EdgeInsets.all(18),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.4),
-                            borderRadius: BorderRadius.circular(14),
+                  // ── Water-rise overlay (always present, off-screen when fraction=0) ──
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: FractionalTranslation(
+                      translation: waterOffset,
+                      child: Container(
+                        height: MediaQuery.of(context).size.height,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              style.colors.last.withValues(alpha: 0.0),
+                              style.colors.last.withValues(alpha: 0.4),
+                              style.colors.first.withValues(alpha: 0.7),
+                            ],
+                            stops: const [0.0, 0.4, 1.0],
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(style.emoji, style: const TextStyle(fontSize: 15)),
-                              const SizedBox(width: 5),
-                              Text(era.label, style: const TextStyle(
-                                color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700,
-                              )),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // ── Water surface wave line (always present, off-screen when fraction=0) ──
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: FractionalTranslation(
+                      translation: waterOffset,
+                      child: Container(
+                        height: 3,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.transparent,
+                              Colors.white.withValues(alpha: 0.6),
+                              Colors.white.withValues(alpha: 0.9),
+                              Colors.white.withValues(alpha: 0.6),
+                              Colors.transparent,
                             ],
                           ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.white.withValues(alpha: 0.3),
+                              blurRadius: 8,
+                              spreadRadius: 1,
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.3),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text('$movieCount movies',
-                              style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 11, fontWeight: FontWeight.w500)),
-                        ),
-                      ],
-                    ),
-
-                    const Spacer(),
-
-                    if (m != null) ...[
-                      Text(
-                        m.title,
-                        style: const TextStyle(
-                          color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800, height: 1.2,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 8),
-                      Row(
+                    ),
+                  ),
+
+                  // ── Content ──
+                  Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Icon(Icons.star_rounded, color: Colors.amber, size: 15),
-                          const SizedBox(width: 3),
-                          Text(m.ratingText, style: const TextStyle(
-                            color: Colors.amber, fontSize: 13, fontWeight: FontWeight.w700,
-                          )),
-                          const SizedBox(width: 10),
-                          Text(m.year, style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.7), fontSize: 13, fontWeight: FontWeight.w500,
-                          )),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.4),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(style.emoji, style: const TextStyle(fontSize: 15)),
+                                    const SizedBox(width: 5),
+                                    Text(widget.era.label, style: const TextStyle(
+                                      color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700,
+                                    )),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.3),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text('${widget.movieCount} movies',
+                                    style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 11, fontWeight: FontWeight.w500)),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+
+                          // ── Additional sections ──
+                          if (widget.sections.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            ...widget.sections,
+                          ],
                         ],
                       ),
-                    ] else ...[
-                      const Text('No movies yet', style: TextStyle(
-                        color: Colors.white54, fontSize: 15, fontWeight: FontWeight.w600,
-                      )),
-                    ],
-                  ],
-                ),
-              ),
-
-              Positioned(top: -20, right: -20, child: CircleAvatar(
-                radius: 50, backgroundColor: Colors.white.withValues(alpha: 0.04),
-              )),
-
-              Positioned(
-                top: 14, right: 14,
-                child: Container(
-                  padding: const EdgeInsets.all(7),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.15),
-                    shape: BoxShape.circle,
+                    ),
                   ),
-                  child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 22),
-                ),
-              ),
-            ],
+
+                  Positioned(top: -20, right: -20, child: CircleAvatar(
+                    radius: 50, backgroundColor: Colors.white.withValues(alpha: 0.04),
+                  )),
+
+                  Positioned(
+                    top: 14, right: 14,
+                    child: Container(
+                      padding: const EdgeInsets.all(7),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 22),
+                    ),
+                  ),
+
+                  // ── Completion percentage label (always present, hidden when fraction=0) ──
+                  Positioned(
+                    bottom: 12,
+                    right: 16,
+                    child: Opacity(
+                      opacity: animFraction > 0.0 ? 1.0 : 0.0,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '${(animFraction * 100).round()}%',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),

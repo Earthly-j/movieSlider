@@ -35,6 +35,9 @@ class _GenreMovieScreenWidgetState extends State<GenreMovieScreenWidget> {
   int _swipedCount = 0;
 
   List<Movie> _movies = []; // filtered (no watched/skipped)
+  int _totalMovies = 0; // total before filtering (for progress calculation)
+  int _initialWatchedCount = 0; // how many were already watched when we loaded
+  int _initialSkippedCount = 0; // how many were already skipped when we loaded
   final List<Movie> _watched = [];
   final List<Movie> _skipped = [];
   Set<int> _watchedIds = {};
@@ -73,18 +76,38 @@ class _GenreMovieScreenWidgetState extends State<GenreMovieScreenWidget> {
       _errorMessage = null;
     });
     try {
-      final movies = await _tmdbService.fetchMoviesByGenre(
+      final allMovies = await _tmdbService.fetchMoviesByGenre(
         widget.genreIds,
         yearFrom: widget.eraStart,
         yearTo: widget.eraEnd,
       );
       if (!mounted) return;
+
+      final allMovieIds = allMovies.map((m) => m.id).toSet();
+      final watched = allMovies.where((m) => _watchedIds.contains(m.id)).toList();
+      final skipped = allMovies.where((m) => _skippedIds.contains(m.id)).toList();
+
       setState(() {
-        _movies = movies
+        _movies = allMovies
             .where((m) => !_watchedIds.contains(m.id) && !_skippedIds.contains(m.id))
             .toList();
+        _watched.clear();
+        _watched.addAll(watched);
+        _skipped.clear();
+        _skipped.addAll(skipped);
+        
+        _totalMovies = allMovies.length;
         _isLoading = false;
       });
+
+      // Save initial progress
+      await SwipeHistory.saveGenreEraProgress(
+        genreName: widget.genreName,
+        eraLabel: widget.eraLabel ?? 'All',
+        total: allMovies.length,
+        watched: watched.length,
+        skipped: skipped.length,
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -266,13 +289,13 @@ class _GenreMovieScreenWidgetState extends State<GenreMovieScreenWidget> {
           ),
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: const EdgeInsets.only(top: 4, bottom: 4),
             child: CardSwiper(
               key: ValueKey(_swiperKey),
               controller: _swiperController,
               cardsCount: _movies.length,
               numberOfCardsDisplayed: 3,
-              backCardOffset: const Offset(0, 40),
+              backCardOffset: const Offset(0, 30),
               padding: const EdgeInsets.symmetric(horizontal: 4),
               onSwipe: _onSwipe,
               onEnd: _onEnd,
@@ -290,36 +313,39 @@ class _GenreMovieScreenWidgetState extends State<GenreMovieScreenWidget> {
             ),
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _ActionButton(
-                icon: Icons.close_rounded,
-                label: 'Skip',
-                color: Colors.redAccent,
-                onTap: () => _swiperController.swipe(CardSwiperDirection.left),
-              ),
-              const SizedBox(width: 24),
-              _ActionButton(
-                icon: Icons.info_outline_rounded,
-                label: 'Info',
-                color: Colors.white54,
-                size: 50,
-                onTap: () {
-                  final idx = _swipedCount;
-                  if (idx < _movies.length) _showMovieDetail(_movies[idx]);
-                },
-              ),
-              const SizedBox(width: 24),
-              _ActionButton(
-                icon: Icons.check_rounded,
-                label: 'Watched',
-                color: Colors.green,
-                onTap: () => _swiperController.swipe(CardSwiperDirection.right),
-              ),
-            ],
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _ActionButton(
+                  icon: Icons.close_rounded,
+                  label: 'Skip',
+                  color: Colors.redAccent,
+                  onTap: () => _swiperController.swipe(CardSwiperDirection.left),
+                ),
+                const SizedBox(width: 24),
+                _ActionButton(
+                  icon: Icons.info_outline_rounded,
+                  label: 'Info',
+                  color: Colors.white54,
+                  size: 50,
+                  onTap: () {
+                    final idx = _swipedCount;
+                    if (idx < _movies.length) _showMovieDetail(_movies[idx]);
+                  },
+                ),
+                const SizedBox(width: 24),
+                _ActionButton(
+                  icon: Icons.check_rounded,
+                  label: 'Watched',
+                  color: Colors.green,
+                  onTap: () => _swiperController.swipe(CardSwiperDirection.right),
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -339,6 +365,17 @@ class _GenreMovieScreenWidgetState extends State<GenreMovieScreenWidget> {
     }
 
     setState(() => _swipedCount++);
+
+    // Persist genre/era progress with correct per-genre/era counts
+    if (_totalMovies > 0) {
+      SwipeHistory.saveGenreEraProgress(
+        genreName: widget.genreName,
+        eraLabel: widget.eraLabel ?? 'All',
+        total: _totalMovies,
+        watched: _initialWatchedCount + _watched.length,
+        skipped: _initialSkippedCount + _skipped.length,
+      );
+    }
 
     return true;
   }

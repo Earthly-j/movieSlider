@@ -47,7 +47,7 @@ class TmdbService {
   // ─── Discover by Genre (sorted by rating desc) ────────────────
 
   Future<List<Movie>> fetchMoviesByGenre(List<int> genreIds, {int? yearFrom, int? yearTo}) async {
-    final genreQuery = genreIds.map((id) => '$id').join(',');
+    final genreQuery = genreIds.map((id) => '$id').join('|');
     // Build date filter params for TMDB discover API
     String dateFilter = '';
     if (yearFrom != null) {
