@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../models/movie.dart';
 import '../services/tmdb_service.dart';
@@ -40,6 +41,9 @@ enum _Era {
   static const all = [_Era.eighties, _Era.nineties, _Era.zeroes, _Era.tens, _Era.twenties];
 }
 
+/// Style for the Anime section (used by top-level widgets).
+const _animeStyle = _GenreStyle(emoji: '👺', colors: [Color(0xFFEC4899), Color(0xFFF472B6)]);
+
 class GenreSelectionScreen extends StatefulWidget {
   const GenreSelectionScreen({super.key});
 
@@ -56,9 +60,8 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
   _MainTab _selectedTab = _MainTab.movies;
 
   // ── Anime state ──
-  List<_AnimeCategory> _animeCategories = [];
+  List<Anime> _allTopAnime = [];
   bool _animeLoading = false;
-  String? _animeError;
 
   // Controllers
   late final PageController _categoryController;
@@ -147,6 +150,22 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
     }
   }
 
+  /// Fetch all top anime once — each section filters by era internally.
+  Future<void> _fetchAllTopAnime() async {
+    if (_allTopAnime.isNotEmpty || _animeLoading) return;
+    _animeLoading = true;
+    if (mounted) setState(() {});
+    try {
+      final anime = await _jikanService.fetchTopAnime(pages: 6);
+      _allTopAnime = anime;
+    } catch (_) {
+      _allTopAnime = [];
+    } finally {
+      _animeLoading = false;
+      if (mounted) setState(() {});
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -196,10 +215,10 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
               final tabIndex = page % _MainTab.values.length;
               if (_selectedTab != _MainTab.values[tabIndex]) {
                 setState(() => _selectedTab = _MainTab.values[tabIndex]);
-                // Trigger anime genre load when switching to anime tab
+                // Trigger anime load when switching to anime tab
                 if (_MainTab.values[tabIndex] == _MainTab.anime &&
-                    _animeCategories.isEmpty && !_animeLoading) {
-                  _loadAnimeGenres();
+                    _allTopAnime.isEmpty && !_animeLoading) {
+                  _fetchAllTopAnime();
                 }
               }
             },
@@ -221,9 +240,9 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
                     duration: const Duration(milliseconds: 400),
                     curve: Curves.easeInOut,
                   );
-                  // Preload anime genres when tapping the anime tab card
-                  if (tab == _MainTab.anime && _animeCategories.isEmpty && !_animeLoading) {
-                    _loadAnimeGenres();
+                  // Preload anime when tapping the anime tab card
+                  if (tab == _MainTab.anime && _allTopAnime.isEmpty && !_animeLoading) {
+                    _fetchAllTopAnime();
                   }
                 },
               );
@@ -278,19 +297,37 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
           ),
         );
       case _MainTab.anime:
-        // Kick off the genre load if it hasn't started yet.
-        // Using WidgetsBinding to avoid calling setState during build.
-        if (_animeCategories.isEmpty && !_animeLoading && _animeError == null) {
-          WidgetsBinding.instance.addPostFrameCallback((_) => _loadAnimeGenres());
-        }
-        return _AnimeTabPage(
+        // Trigger the single bulk fetch on first build
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_allTopAnime.isEmpty && !_animeLoading) _fetchAllTopAnime();
+        });
+        return ListWheelScrollView.useDelegate(
           key: const ValueKey('anime'),
-          tab: _selectedTab,
-          animeCategories: _animeCategories,
-          isLoading: _animeLoading,
-          errorMessage: _animeError,
-          onRetry: _loadAnimeGenres,
-          onCategoryTap: (cat) => _openAnimeCategory(cat),
+          controller: _genreWheelController,
+          itemExtent: MediaQuery.of(context).size.height * 0.35,
+          diameterRatio: 100.0,
+          perspective: 0.0001,
+          squeeze: 1.0,
+          physics: const BouncingScrollPhysics(),
+          childDelegate: ListWheelChildBuilderDelegate(
+            childCount: null,
+            builder: (context, index) {
+              final eraIndex = index % _Era.all.length;
+              final era = _Era.all[eraIndex];
+              final loading = _animeLoading && _allTopAnime.isEmpty;
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _AnimeEraSection(
+                  key: ValueKey('anime_era_${era.label}_$_progressRefreshKey'),
+                  era: era,
+                  allAnime: _allTopAnime,
+                  isLoading: loading,
+                  onTapExplore: () => _openAnimeEra(era),
+                  onTapEra: (e) => _openAnimeEra(e),
+                ),
+              );
+            },
+          ),
         );
       case _MainTab.songs:
       case _MainTab.indieGames:
@@ -319,91 +356,13 @@ class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
 
   // ── Anime (Jikan API) ──
 
-  Future<void> _loadAnimeGenres() async {
-    if (_animeLoading) return;
-    if (_animeCategories.isNotEmpty) return;
-    print('[Jikan] Loading anime genres...');
-    setState(() { _animeLoading = true; _animeError = null; });
-    try {
-      final genres = await _jikanService.fetchAnimeGenres();
-      print('[Jikan] Got ${genres.length} genres');
-      // Build curated anime categories with icons and colors
-      final curated = [
-        _AnimeCategory(
-          label: 'Top Anime',
-          emoji: '🏆',
-          colors: [const Color(0xFFEC4899), const Color(0xFFF472B6)],
-          subtitle: 'Highest rated anime of all time',
-        ),
-        _AnimeCategory(
-          label: 'Action',
-          emoji: '⚔️',
-          malGenreId: genres.where((g) => g.name == 'Action').firstOrNull?.malId,
-          colors: [const Color(0xFFEF4444), const Color(0xFFF97316)],
-          subtitle: 'Shonen fights & battle shonen',
-        ),
-        _AnimeCategory(
-          label: 'Romance',
-          emoji: '💕',
-          malGenreId: genres.where((g) => g.name == 'Romance').firstOrNull?.malId,
-          colors: [const Color(0xFFF472B6), const Color(0xFFEC4899)],
-          subtitle: 'Love stories & dating anime',
-        ),
-        _AnimeCategory(
-          label: 'Fantasy',
-          emoji: '🧙',
-          malGenreId: genres.where((g) => g.name == 'Fantasy').firstOrNull?.malId,
-          colors: [const Color(0xFF8B5CF6), const Color(0xFFA78BFA)],
-          subtitle: 'Magic worlds & mythical adventures',
-        ),
-        _AnimeCategory(
-          label: 'Comedy',
-          emoji: '😂',
-          malGenreId: genres.where((g) => g.name == 'Comedy').firstOrNull?.malId,
-          colors: [const Color(0xFFF59E0B), const Color(0xFFFBBF24)],
-          subtitle: 'Light-hearted laughs & slice of life',
-        ),
-        _AnimeCategory(
-          label: 'Horror',
-          emoji: '👻',
-          malGenreId: genres.where((g) => g.name == 'Horror').firstOrNull?.malId,
-          colors: [const Color(0xFF1F2937), const Color(0xFF6B7280)],
-          subtitle: 'Dark tales & psychological thrillers',
-        ),
-        _AnimeCategory(
-          label: 'Sci-Fi',
-          emoji: '🤖',
-          malGenreId: genres.where((g) => g.name == 'Sci-Fi').firstOrNull?.malId,
-          colors: [const Color(0xFF06B6D4), const Color(0xFF3B82F6)],
-          subtitle: 'Mecha, cyberpunk & futuristic worlds',
-        ),
-        _AnimeCategory(
-          label: 'Slice of Life',
-          emoji: '🌸',
-          malGenreId: genres.where((g) => g.name == 'Slice of Life').firstOrNull?.malId,
-          colors: [const Color(0xFF10B981), const Color(0xFF6EE7B7)],
-          subtitle: 'Everyday moments & relaxing vibes',
-        ),
-        _AnimeCategory(
-          label: 'Currently Airing',
-          emoji: '📡',
-          colors: [const Color(0xFF6366F1), const Color(0xFF818CF8)],
-          subtitle: 'What everyone is watching right now',
-        ),
-      ];
-      if (mounted) setState(() { _animeCategories = curated; _animeLoading = false; });
-      print('[Jikan] Anime genres loaded successfully');
-    } catch (e) {
-      print('[Jikan] Error loading genres: $e');
-      if (mounted) setState(() { _animeError = e.toString(); _animeLoading = false; });
-    }
-  }
-
-  void _openAnimeCategory(_AnimeCategory cat) async {
+  void _openAnimeEra(_Era era) async {
     await Navigator.push(context, MaterialPageRoute(
       builder: (_) => AnimeBrowseScreen(
-        genreName: cat.label,
-        genreId: cat.malGenreId,        isCurrentlyAiring: cat.label == 'Currently Airing',
+        genreName: 'Anime',
+        eraLabel: era.label,
+        eraStart: era.start,
+        eraEnd: era.end,
       ),
     ));
     if (mounted) {
@@ -939,130 +898,203 @@ class _EraCardState extends State<_EraCard> with SingleTickerProviderStateMixin 
 }
 
 // ════════════════════════════════════════════════════════════════
-// Anime Category — one browsing category for the anime tab
+// Anime Era Section — mirrors _GenreSection but for anime by decade
 // ════════════════════════════════════════════════════════════════
 
-class _AnimeCategory {
-  final String label;
-  final String emoji;
-  final List<Color> colors;
-  final String subtitle;
-  final int? malGenreId; // null = special (top anime, currently airing)
-
-  const _AnimeCategory({
-    required this.label,
-    required this.emoji,
-    required this.colors,
-    required this.subtitle,
-    this.malGenreId,
-  });
-}
-
-// ════════════════════════════════════════════════════════════════
-// Anime Tab Page — scrollable grid of anime categories
-// ════════════════════════════════════════════════════════════════
-
-class _AnimeTabPage extends StatefulWidget {
-  const _AnimeTabPage({
+class _AnimeEraSection extends StatefulWidget {
+  const _AnimeEraSection({
     super.key,
-    required this.tab,
-    required this.animeCategories,
+    required this.era,
+    required this.allAnime,
     required this.isLoading,
-    this.errorMessage,
-    required this.onRetry,
-    required this.onCategoryTap,
+    required this.onTapExplore,
+    required this.onTapEra,
   });
-  final _MainTab tab;
-  final List<_AnimeCategory> animeCategories;
+  final _Era era;
+  final List<Anime> allAnime;
   final bool isLoading;
-  final String? errorMessage;
-  final VoidCallback onRetry;
-  final void Function(_AnimeCategory cat) onCategoryTap;
+  final VoidCallback onTapExplore;
+  final void Function(_Era era) onTapEra;
 
   @override
-  State<_AnimeTabPage> createState() => _AnimeTabPageState();
+  State<_AnimeEraSection> createState() => _AnimeEraSectionState();
 }
 
-class _AnimeTabPageState extends State<_AnimeTabPage> {
+class _AnimeEraSectionState extends State<_AnimeEraSection> {
+  final Map<String, double> _eraFractions = {};
+  bool _fractionsLoaded = false;
+  late final PageController _pageController;
+  static const int _middle = 50000;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFractions();
+    _pageController = PageController(initialPage: _middle, viewportFraction: 0.85);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnimeEraSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.allAnime.length != widget.allAnime.length && !_fractionsLoaded) {
+      _loadFractions();
+    }
+  }
+
+  Future<void> _loadFractions() async {
+    try {
+      for (final era in _Era.all) {
+        final f = await SwipeHistory.loadGenreEraFraction(
+          genreName: 'Anime',
+          eraLabel: era.label,
+        );
+        if (f != null && f > 0) _eraFractions[era.label] = f;
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _fractionsLoaded = true);
+  }
+
+  /// Filter the full list to anime within a specific era.
+  List<Anime> _animeForEra(_Era era) {
+    return widget.allAnime.where((a) {
+      if (a.year <= 0) return false;
+      return a.year >= era.start && a.year <= era.end;
+    }).toList();
+  }
+
+  Anime? _topAnimeForEra(_Era era) {
+    final list = _animeForEra(era);
+    return list.isEmpty ? null : list.first;
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (widget.isLoading && widget.animeCategories.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 16),
-            Text('Loading anime genres...', style: TextStyle(color: Colors.white54)),
-          ],
-        ),
-      );
-    }
-
-    if (widget.errorMessage != null && widget.animeCategories.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
-              const SizedBox(height: 16),
-              Text(widget.errorMessage!, textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white70)),
-              const SizedBox(height: 16),
-              ElevatedButton(onPressed: widget.onRetry, child: const Text('Retry')),
-            ],
-          ),
-        ),
-      );
-    }
+    final style = _animeStyle;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: GridView.builder(
-        padding: const EdgeInsets.only(top: 8, bottom: 24),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          childAspectRatio: 1.1,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-        ),
-        itemCount: widget.animeCategories.length,
-        itemBuilder: (context, index) {
-          final cat = widget.animeCategories[index];
-          return _AnimeGenreCard(
-            category: cat,
-            onTap: () => widget.onCategoryTap(cat),
-          );
-        },
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Anime header row ──
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                Text(style.emoji, style: const TextStyle(fontSize: 22)),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text('Anime', style: TextStyle(
+                    color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700,
+                  )),
+                ),
+                GestureDetector(
+                  onTap: widget.onTapExplore,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(colors: style.colors),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('Explore All', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+                        SizedBox(width: 4),
+                        Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 15),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // ── Content: infinite era carousel ──
+          Expanded(
+            child: widget.isLoading
+                ? const Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white24))
+                : PageView.builder(
+                    controller: _pageController,
+                    padEnds: true,
+                    itemCount: null,
+                    itemBuilder: (context, index) {
+                      final era = _Era.all[index % _Era.all.length];
+                      final anime = _topAnimeForEra(era);
+                      final count = _animeForEra(era).length;
+                      final fraction = _eraFractions[era.label] ?? 0.0;
+
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: _AnimeEraCard(
+                          era: era,
+                          anime: anime,
+                          animeCount: count,
+                          completionFraction: fraction,
+                          onTap: () => widget.onTapEra(era),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
       ),
     );
   }
 }
 
 // ════════════════════════════════════════════════════════════════
-// Anime Genre Card — tappable card for one anime category
+// Anime Era Card — shows top anime image for that era
 // ════════════════════════════════════════════════════════════════
 
-class _AnimeGenreCard extends StatefulWidget {
-  const _AnimeGenreCard({required this.category, required this.onTap});
-  final _AnimeCategory category;
+class _AnimeEraCard extends StatefulWidget {
+  const _AnimeEraCard({
+    required this.era,
+    required this.anime,
+    required this.animeCount,
+    required this.onTap,
+    this.completionFraction = 0.0,
+  });
+
+  final _Era era;
+  final Anime? anime;
+  final int animeCount;
   final VoidCallback onTap;
+  final double completionFraction;
 
   @override
-  State<_AnimeGenreCard> createState() => _AnimeGenreCardState();
+  State<_AnimeEraCard> createState() => _AnimeEraCardState();
 }
 
-class _AnimeGenreCardState extends State<_AnimeGenreCard> with SingleTickerProviderStateMixin {
+class _AnimeEraCardState extends State<_AnimeEraCard> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  late Animation<double> _scaleAnim;
+  late Animation<double> _animation;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 200));
-    _scaleAnim = Tween<double>(begin: 1.0, end: 0.95).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 1200),
+      vsync: this,
+    );
+    _animation = CurvedAnimation(parent: _controller, curve: Curves.easeInOutCubic);
+    _controller.forward();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnimeEraCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.completionFraction != widget.completionFraction) {
+      _controller.value = oldWidget.completionFraction;
+      _controller.forward();
+    }
   }
 
   @override
@@ -1073,109 +1105,214 @@ class _AnimeGenreCardState extends State<_AnimeGenreCard> with SingleTickerProvi
 
   @override
   Widget build(BuildContext context) {
-    final cat = widget.category;
+    final style = _animeStyle;
+    final width = MediaQuery.of(context).size.width * 0.90;
+    final a = widget.anime;
+    final fraction = widget.completionFraction;
+
     return GestureDetector(
-      onTapDown: (_) => _controller.forward(),
-      onTapUp: (_) {
-        _controller.reverse();
-        widget.onTap();
-      },
-      onTapCancel: () => _controller.reverse(),
-      child: AnimatedBuilder(
-        animation: _scaleAnim,
-        builder: (context, _) => Transform.scale(
-          scale: _scaleAnim.value,
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: cat.colors,
-              ),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: cat.colors.first.withValues(alpha: 0.4),
-                  blurRadius: 16,
-                  offset: const Offset(0, 8),
-                  spreadRadius: 1,
-                ),
-              ],
+      onTap: widget.onTap,
+      child: Container(
+        width: width,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: style.colors.first.withValues(alpha: 0.4),
+              blurRadius: 20,
+              offset: const Offset(0, 12),
+              spreadRadius: 2,
             ),
-            child: Stack(
-              children: [
-                // Decorative circle
-                Positioned(
-                  top: -20, right: -20,
-                  child: Container(
-                    width: 80, height: 80,
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: AnimatedBuilder(
+            animation: _animation,
+            builder: (context, _) {
+              final animFraction = fraction * _animation.value;
+              final waterOffset = Offset(0, 1.0 - animFraction);
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  // ── Background: anime image ──
+                  if (a != null && a.imageUrl.isNotEmpty)
+                    CachedNetworkImage(
+                      imageUrl: a.imageUrl,
+                      fit: BoxFit.cover,
+                      placeholder: (_, __) => _gradientBg(style),
+                      errorWidget: (_, __, ___) => _gradientBg(style),
+                    )
+                  else
+                    _gradientBg(style),
+
+                  // ── Gradient overlay ──
+                  Container(
                     decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.06),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  bottom: -30, left: -10,
-                  child: Container(
-                    width: 60, height: 60,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.black.withValues(alpha: 0.1),
-                    ),
-                  ),
-                ),
-                // Content
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(cat.emoji, style: const TextStyle(fontSize: 32)),
-                      const Spacer(),
-                      Text(
-                        cat.label,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          style.colors.first.withValues(alpha: 0.3),
+                          style.colors.last.withValues(alpha: 0.9),
+                        ],
+                        stops: const [0.3, 0.6, 1.0],
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        cat.subtitle,
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.7),
-                          fontSize: 11,
-                          height: 1.3,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-                // Play icon
-                Positioned(
-                  top: 12, right: 12,
-                  child: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.15),
-                      shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 18),
                   ),
-                ),
-              ],
-            ),
+
+                  // ── Water-rise overlay ──
+                  Positioned.fill(
+                    child: FractionalTranslation(
+                      translation: waterOffset,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              style.colors.first.withValues(alpha: 0.2),
+                              style.colors.first.withValues(alpha: 0.5),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // ── Water surface wave line ──
+                  Positioned(
+                    left: 0, right: 0, bottom: 0,
+                    child: FractionalTranslation(
+                      translation: waterOffset,
+                      child: Container(
+                        height: 2,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.6),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.white.withValues(alpha: 0.4),
+                              blurRadius: 10,
+                              spreadRadius: 2,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // ── Content ──
+                  Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.4),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(style.emoji, style: const TextStyle(fontSize: 15)),
+                                    const SizedBox(width: 5),
+                                    Text(widget.era.label, style: const TextStyle(
+                                      color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700,
+                                    )),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.3),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text('${widget.animeCount} anime',
+                                    style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 11, fontWeight: FontWeight.w500)),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+
+                          // ── Top anime title ──
+                          if (a != null) ...[
+                            Text(
+                              '#1 ${a.displayTitle}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                const Icon(Icons.star_rounded, color: Colors.amber, size: 14),
+                                const SizedBox(width: 3),
+                                Text(a.scoreText,
+                                    style: const TextStyle(color: Colors.amber, fontSize: 13, fontWeight: FontWeight.w600)),
+                                if (a.yearString.isNotEmpty) ...[
+                                  const SizedBox(width: 8),
+                                  Text(a.yearString,
+                                      style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 12)),
+                                ],
+                                if (a.episodes > 0) ...[
+                                  const SizedBox(width: 8),
+                                  Text('${a.episodes} eps',
+                                      style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 11)),
+                                ],
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // ── Decorative circle ──
+                  Positioned(top: -20, right: -20, child: CircleAvatar(
+                    radius: 50, backgroundColor: Colors.white.withValues(alpha: 0.04),
+                  )),
+
+                  // ── Play icon ──
+                  Positioned(
+                    top: 14, right: 14,
+                    child: Container(
+                      padding: const EdgeInsets.all(7),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 22),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
     );
   }
+
+  Widget _gradientBg(_GenreStyle style) => Container(
+    decoration: BoxDecoration(gradient: LinearGradient(
+      begin: Alignment.topLeft, end: Alignment.bottomRight, colors: style.colors,
+    )),
+    alignment: Alignment.center,
+    child: Text(style.emoji, style: TextStyle(fontSize: 60, color: Colors.white.withValues(alpha: 0.08))),
+  );
 }
 
 // ════════════════════════════════════════════════════════════════
