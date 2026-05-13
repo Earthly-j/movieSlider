@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 import '../models/movie.dart';
@@ -282,8 +283,8 @@ class _HomeScreenState extends State<HomeScreen> {
             child: CardSwiper(
               key: ValueKey(_swiperKey),
               controller: _swiperController,
-              cardsCount: _movies.length,
-              numberOfCardsDisplayed: 3,
+              cardsCount: math.max(1, _movies.length),
+              numberOfCardsDisplayed: math.max(1, _movies.length < 3 ? _movies.length : 3),
               backCardOffset: const Offset(0, 40),
               padding: const EdgeInsets.symmetric(horizontal: 4),
               onSwipe: _onSwipe,

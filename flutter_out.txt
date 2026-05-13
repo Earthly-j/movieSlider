@@ -1,0 +1,44 @@
+Analyzing movie_silderr...                                      
+
+   info • The constant name 'TMDB_API_KEY' isn't a lowerCamelCase identifier • lib/config.dart:3:14 • constant_identifier_names
+   info • The constant name 'TMDB_BASE_URL' isn't a lowerCamelCase identifier • lib/config.dart:5:14 • constant_identifier_names
+   info • The constant name 'TMDB_IMAGE_BASE' isn't a lowerCamelCase identifier • lib/config.dart:6:14 • constant_identifier_names
+   info • The private field _swiperKey could be 'final' • lib/screens/anime_browse_screen.dart:35:7 • prefer_final_fields
+   info • Unnecessary use of multiple underscores • lib/screens/anime_browse_screen.dart:440:38 • unnecessary_underscores
+   info • Unnecessary use of multiple underscores • lib/screens/anime_browse_screen.dart:444:38 • unnecessary_underscores
+   info • Unnecessary use of multiple underscores • lib/screens/anime_browse_screen.dart:444:42 • unnecessary_underscores
+   info • Unnecessary use of multiple underscores • lib/screens/anime_browse_screen.dart:653:38 • unnecessary_underscores
+   info • Unnecessary use of multiple underscores • lib/screens/anime_browse_screen.dart:892:29 • unnecessary_underscores
+   info • Unnecessary use of multiple underscores • lib/screens/anime_browse_screen.dart:925:38 • unnecessary_underscores
+   info • Unnecessary use of multiple underscores • lib/screens/anime_browse_screen.dart:926:38 • unnecessary_underscores
+   info • Unnecessary use of multiple underscores • lib/screens/anime_browse_screen.dart:926:42 • unnecessary_underscores
+   info • The private field _swiperKey could be 'final' • lib/screens/genre_movie_screen.dart:34:7 • prefer_final_fields
+warning • The value of the local variable 'allMovieIds' isn't used • lib/screens/genre_movie_screen.dart:84:13 • unused_local_variable
+   info • Unnecessary use of multiple underscores • lib/screens/genre_movie_screen.dart:727:29 • unnecessary_underscores
+   info • Unnecessary use of multiple underscores • lib/screens/genre_movie_screen.dart:766:38 • unnecessary_underscores
+   info • Unnecessary use of multiple underscores • lib/screens/genre_movie_screen.dart:767:38 • unnecessary_underscores
+   info • Unnecessary use of multiple underscores • lib/screens/genre_movie_screen.dart:767:42 • unnecessary_underscores
+warning • A value for optional parameter 'fullWidth' isn't ever given • lib/screens/genre_selection_screen.dart:663:10 • unused_element_parameter
+warning • A value for optional parameter 'sections' isn't ever given • lib/screens/genre_selection_screen.dart:664:10 • unused_element_parameter
+   info • Unnecessary use of multiple underscores • lib/screens/genre_selection_screen.dart:754:43 • unnecessary_underscores
+   info • Unnecessary use of multiple underscores • lib/screens/genre_selection_screen.dart:754:47 • unnecessary_underscores
+   info • Unnecessary use of multiple underscores • lib/screens/genre_selection_screen.dart:1143:40 • unnecessary_underscores
+   info • Unnecessary use of multiple underscores • lib/screens/genre_selection_screen.dart:1144:40 • unnecessary_underscores
+   info • Unnecessary use of multiple underscores • lib/screens/genre_selection_screen.dart:1144:44 • unnecessary_underscores
+   info • The private field _watched could be 'final' • lib/screens/home_screen.dart:22:15 • prefer_final_fields
+   info • The private field _skipped could be 'final' • lib/screens/home_screen.dart:23:15 • prefer_final_fields
+   info • The constant name 'JIKAN_BASE_URL' isn't a lowerCamelCase identifier • lib/services/jikan_service.dart:6:14 • constant_identifier_names
+   info • Don't invoke 'print' in production code • lib/services/jikan_service.dart:140:9 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/jikan_service.dart:153:5 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/jikan_service.dart:156:5 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/jikan_service.dart:162:5 • avoid_print
+   info • Unnecessary braces in a string interpolation • lib/services/swipe_history.dart:11:37 • unnecessary_brace_in_string_interps
+   info • Unnecessary braces in a string interpolation • lib/services/swipe_history.dart:84:32 • unnecessary_brace_in_string_interps
+   info • Unnecessary braces in a string interpolation • lib/services/swipe_history.dart:117:31 • unnecessary_brace_in_string_interps
+warning • The value of the local variable 'movies' isn't used • test_api.dart:51:11 • unused_local_variable
+   info • Don't invoke 'print' in production code • test_api.dart:52:5 • avoid_print
+   info • Don't invoke 'print' in production code • test_api.dart:54:5 • avoid_print
+warning • Unused import: 'package:http/http.dart' • test_service.dart:1:8 • unused_import
+   info • Don't invoke 'print' in production code • test_service.dart:7:3 • avoid_print
+   info • Use interpolation to compose strings and values • test_service.dart:7:9 • prefer_interpolation_to_compose_strings
+
